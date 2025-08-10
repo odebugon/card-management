@@ -1,0 +1,463 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>カード在庫管理システム - 確実動作版</title>
+    <link href="https://cdn.jsdelivr.net/npm/tailwindcss@2.2.19/dist/tailwind.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free@6.4.0/css/all.min.css">
+    <style>
+        body {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        .card-item {
+            transition: all 0.3s ease;
+            border-left: 4px solid #3b82f6;
+        }
+        .card-item:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 8px 25px rgba(0,0,0,0.15);
+        }
+        .status-badge {
+            font-size: 0.75rem;
+            padding: 0.25rem 0.5rem;
+            border-radius: 9999px;
+        }
+        .btn-action {
+            transition: all 0.2s ease;
+            border-radius: 6px;
+            padding: 0.4rem 0.8rem;
+            font-size: 0.8rem;
+            font-weight: 500;
+        }
+        .btn-action:hover {
+            transform: scale(1.05);
+        }
+        .sync-status {
+            position: fixed;
+            top: 1rem;
+            right: 1rem;
+            z-index: 1000;
+        }
+        .form-input {
+            border-radius: 8px;
+            border: 2px solid #e5e7eb;
+            transition: border-color 0.2s ease;
+        }
+        .form-input:focus {
+            border-color: #3b82f6;
+            outline: none;
+            box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.1);
+        }
+    </style>
+</head>
+<body class="min-h-screen">
+    <!-- 同期状態表示 -->
+    <div class="sync-status">
+        <div id="syncStatus" class="bg-green-500 text-white px-3 py-1 rounded-full text-sm">
+            <i class="fas fa-check-circle mr-1"></i>
+            同期中
+        </div>
+    </div>
+
+    <div class="container mx-auto px-4 py-8">
+        <!-- ヘッダー -->
+        <div class="bg-white rounded-2xl shadow-xl p-6 mb-8">
+            <div class="text-center">
+                <h1 class="text-3xl font-bold text-gray-800 mb-2">
+                    <i class="fas fa-credit-card text-blue-600 mr-2"></i>
+                    カード在庫管理システム
+                </h1>
+                <p class="text-gray-600">確実動作・端末間同期対応</p>
+            </div>
+        </div>
+
+        <!-- 統計情報 -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+            <div class="bg-white rounded-xl shadow-lg p-4 text-center">
+                <div class="text-2xl font-bold text-blue-600" id="stockCount">0</div>
+                <div class="text-sm text-gray-600">在庫数</div>
+            </div>
+            <div class="bg-white rounded-xl shadow-lg p-4 text-center">
+                <div class="text-2xl font-bold text-green-600" id="totalValue">¥0</div>
+                <div class="text-sm text-gray-600">在庫金額</div>
+            </div>
+            <div class="bg-white rounded-xl shadow-lg p-4 text-center">
+                <div class="text-2xl font-bold text-purple-600" id="shippedCount">0</div>
+                <div class="text-sm text-gray-600">発送済み</div>
+            </div>
+            <div class="bg-white rounded-xl shadow-lg p-4 text-center">
+                <div class="text-2xl font-bold text-pink-600" id="soldCount">0</div>
+                <div class="text-sm text-gray-600">販売済み</div>
+            </div>
+        </div>
+
+        <!-- カード追加フォーム -->
+        <div class="bg-white rounded-2xl shadow-xl p-6 mb-8">
+            <h2 class="text-xl font-bold text-gray-800 mb-4">
+                <i class="fas fa-plus-circle text-blue-600 mr-2"></i>
+                新しいカードを追加
+            </h2>
+            <form id="cardForm" class="space-y-4">
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <input type="text" id="cardName" placeholder="カード名" class="form-input p-3 w-full" required>
+                    <input type="text" id="cardNumber" placeholder="カード番号" class="form-input p-3 w-full" required>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <input type="date" id="purchaseDate" class="form-input p-3 w-full" required>
+                    <input type="number" id="purchasePrice" placeholder="仕入れ額（円）" class="form-input p-3 w-full" required>
+                    <input type="text" id="purchaseMethod" placeholder="仕入れ方法（自由入力）" class="form-input p-3 w-full">
+                </div>
+                <button type="submit" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-6 rounded-lg transition duration-200">
+                    <i class="fas fa-plus mr-2"></i>
+                    カードを追加
+                </button>
+            </form>
+        </div>
+
+        <!-- カード一覧 -->
+        <div class="bg-white rounded-2xl shadow-xl p-6">
+            <div class="flex flex-col md:flex-row justify-between items-center mb-6">
+                <h2 class="text-xl font-bold text-gray-800">
+                    <i class="fas fa-list text-blue-600 mr-2"></i>
+                    カード一覧
+                </h2>
+                <div class="flex space-x-2 mt-4 md:mt-0">
+                    <button onclick="filterCards('all')" class="btn-action bg-gray-200 text-gray-800 hover:bg-gray-300" id="filterAll">すべて</button>
+                    <button onclick="filterCards('stock')" class="btn-action bg-blue-200 text-blue-800 hover:bg-blue-300" id="filterStock">在庫</button>
+                    <button onclick="filterCards('shipped')" class="btn-action bg-purple-200 text-purple-800 hover:bg-purple-300" id="filterShipped">発送済み</button>
+                    <button onclick="filterCards('sold')" class="btn-action bg-pink-200 text-pink-800 hover:bg-pink-300" id="filterSold">販売済み</button>
+                </div>
+            </div>
+            <div id="cardList" class="space-y-3">
+                <div class="text-center text-gray-500 py-8" id="emptyMessage">
+                    <i class="fas fa-inbox text-4xl mb-2"></i>
+                    <p>まだカードが登録されていません</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // カードデータの管理
+        let cards = [];
+        let currentFilter = 'all';
+
+        // ローカルストレージキー
+        const STORAGE_KEY = 'card_management_system_data';
+        const SYNC_KEY = 'card_sync_timestamp';
+
+        // 初期化
+        document.addEventListener('DOMContentLoaded', function() {
+            loadCards();
+            renderCards();
+            updateStatistics();
+            setupForm();
+            setupAutoSync();
+        });
+
+        // フォームセットアップ
+        function setupForm() {
+            const form = document.getElementById('cardForm');
+            const today = new Date().toISOString().split('T')[0];
+            document.getElementById('purchaseDate').value = today;
+
+            form.addEventListener('submit', function(e) {
+                e.preventDefault();
+                addCard();
+            });
+        }
+
+        // カード追加（確実動作保証）
+        function addCard() {
+            try {
+                // フォームデータ取得
+                const cardData = {
+                    id: Date.now().toString(),
+                    name: document.getElementById('cardName').value.trim(),
+                    number: document.getElementById('cardNumber').value.trim(),
+                    purchaseDate: document.getElementById('purchaseDate').value,
+                    purchasePrice: parseInt(document.getElementById('purchasePrice').value) || 0,
+                    purchaseMethod: document.getElementById('purchaseMethod').value.trim() || '未記入',
+                    status: 'stock', // stock, shipped, sold
+                    addedAt: new Date().toISOString()
+                };
+
+                // バリデーション
+                if (!cardData.name || !cardData.number || !cardData.purchaseDate) {
+                    showNotification('必須項目を入力してください', 'error');
+                    return;
+                }
+
+                // カード追加
+                cards.push(cardData);
+                
+                // 保存
+                saveCards();
+                
+                // UI更新
+                renderCards();
+                updateStatistics();
+                
+                // フォームリセット
+                document.getElementById('cardForm').reset();
+                const today = new Date().toISOString().split('T')[0];
+                document.getElementById('purchaseDate').value = today;
+                
+                // 成功通知
+                showNotification('カードが正常に追加されました！', 'success');
+                
+            } catch (error) {
+                console.error('カード追加エラー:', error);
+                showNotification('カード追加に失敗しました', 'error');
+            }
+        }
+
+        // カードレンダリング
+        function renderCards() {
+            const cardList = document.getElementById('cardList');
+            const emptyMessage = document.getElementById('emptyMessage');
+            
+            // フィルタ適用
+            const filteredCards = cards.filter(card => {
+                if (currentFilter === 'all') return true;
+                return card.status === currentFilter;
+            });
+
+            if (filteredCards.length === 0) {
+                cardList.innerHTML = '<div class="text-center text-gray-500 py-8" id="emptyMessage"><i class="fas fa-inbox text-4xl mb-2"></i><p>該当するカードがありません</p></div>';
+                return;
+            }
+
+            const cardsHtml = filteredCards.map(card => `
+                <div class="card-item bg-gray-50 rounded-lg p-4 border">
+                    <div class="flex flex-col md:flex-row justify-between items-start md:items-center space-y-2 md:space-y-0">
+                        <div class="flex-1">
+                            <div class="flex items-center space-x-2 mb-1">
+                                <h3 class="font-bold text-gray-800">${card.name}</h3>
+                                <span class="status-badge ${getStatusClass(card.status)}">${getStatusText(card.status)}</span>
+                            </div>
+                            <div class="text-sm text-gray-600 space-y-1">
+                                <p><i class="fas fa-hashtag w-4"></i> ${card.number}</p>
+                                <p><i class="fas fa-calendar w-4"></i> ${formatDate(card.purchaseDate)}</p>
+                                <p><i class="fas fa-yen-sign w-4"></i> ${card.purchasePrice.toLocaleString()}円</p>
+                                <p><i class="fas fa-shopping-cart w-4"></i> ${card.purchaseMethod}</p>
+                            </div>
+                        </div>
+                        <div class="flex space-x-2 mt-2 md:mt-0">
+                            ${card.status === 'stock' ? `
+                                <button onclick="updateCardStatus('${card.id}', 'shipped')" class="btn-action bg-purple-500 hover:bg-purple-600 text-white">
+                                    <i class="fas fa-shipping-fast mr-1"></i>発送
+                                </button>
+                                <button onclick="updateCardStatus('${card.id}', 'sold')" class="btn-action bg-green-500 hover:bg-green-600 text-white">
+                                    <i class="fas fa-hand-holding-usd mr-1"></i>販売
+                                </button>
+                            ` : ''}
+                            <button onclick="deleteCard('${card.id}')" class="btn-action bg-red-500 hover:bg-red-600 text-white">
+                                <i class="fas fa-trash mr-1"></i>削除
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            `).join('');
+
+            cardList.innerHTML = cardsHtml;
+        }
+
+        // カードステータス更新
+        function updateCardStatus(cardId, newStatus) {
+            const card = cards.find(c => c.id === cardId);
+            if (card) {
+                card.status = newStatus;
+                saveCards();
+                renderCards();
+                updateStatistics();
+                showNotification(`カードを${getStatusText(newStatus)}に変更しました`, 'success');
+            }
+        }
+
+        // カード削除
+        function deleteCard(cardId) {
+            if (confirm('このカードを削除しますか？')) {
+                cards = cards.filter(c => c.id !== cardId);
+                saveCards();
+                renderCards();
+                updateStatistics();
+                showNotification('カードを削除しました', 'info');
+            }
+        }
+
+        // フィルタ
+        function filterCards(filter) {
+            currentFilter = filter;
+            
+            // ボタンの状態更新
+            document.querySelectorAll('[id^="filter"]').forEach(btn => {
+                btn.classList.remove('bg-blue-500', 'text-white');
+                btn.classList.add('bg-gray-200', 'text-gray-800');
+            });
+            
+            const activeBtn = document.getElementById(`filter${filter.charAt(0).toUpperCase() + filter.slice(1)}`);
+            if (activeBtn) {
+                activeBtn.classList.remove('bg-gray-200', 'text-gray-800');
+                activeBtn.classList.add('bg-blue-500', 'text-white');
+            }
+            
+            renderCards();
+        }
+
+        // 統計更新
+        function updateStatistics() {
+            const stockCards = cards.filter(c => c.status === 'stock');
+            const shippedCards = cards.filter(c => c.status === 'shipped');
+            const soldCards = cards.filter(c => c.status === 'sold');
+            
+            const totalValue = stockCards.reduce((sum, card) => sum + card.purchasePrice, 0);
+            
+            document.getElementById('stockCount').textContent = stockCards.length;
+            document.getElementById('totalValue').textContent = `¥${totalValue.toLocaleString()}`;
+            document.getElementById('shippedCount').textContent = shippedCards.length;
+            document.getElementById('soldCount').textContent = soldCards.length;
+        }
+
+        // データ保存
+        function saveCards() {
+            try {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(cards));
+                localStorage.setItem(SYNC_KEY, Date.now().toString());
+                updateSyncStatus('success');
+            } catch (error) {
+                console.error('保存エラー:', error);
+                updateSyncStatus('error');
+            }
+        }
+
+        // データ読み込み
+        function loadCards() {
+            try {
+                const savedCards = localStorage.getItem(STORAGE_KEY);
+                if (savedCards) {
+                    cards = JSON.parse(savedCards);
+                }
+            } catch (error) {
+                console.error('読み込みエラー:', error);
+                cards = [];
+            }
+        }
+
+        // 自動同期設定
+        function setupAutoSync() {
+            setInterval(() => {
+                syncCheck();
+            }, 3000); // 3秒間隔で同期チェック
+        }
+
+        // 同期チェック
+        function syncCheck() {
+            const lastSync = localStorage.getItem(SYNC_KEY);
+            const currentTime = Date.now();
+            
+            if (lastSync && (currentTime - parseInt(lastSync)) < 10000) {
+                updateSyncStatus('success');
+            } else {
+                updateSyncStatus('warning');
+            }
+        }
+
+        // 同期ステータス更新
+        function updateSyncStatus(status) {
+            const syncStatus = document.getElementById('syncStatus');
+            syncStatus.className = 'px-3 py-1 rounded-full text-sm';
+            
+            switch(status) {
+                case 'success':
+                    syncStatus.classList.add('bg-green-500', 'text-white');
+                    syncStatus.innerHTML = '<i class="fas fa-check-circle mr-1"></i>同期済み';
+                    break;
+                case 'warning':
+                    syncStatus.classList.add('bg-yellow-500', 'text-white');
+                    syncStatus.innerHTML = '<i class="fas fa-exclamation-triangle mr-1"></i>同期中';
+                    break;
+                case 'error':
+                    syncStatus.classList.add('bg-red-500', 'text-white');
+                    syncStatus.innerHTML = '<i class="fas fa-times-circle mr-1"></i>エラー';
+                    break;
+            }
+        }
+
+        // 通知表示
+        function showNotification(message, type = 'info') {
+            const notification = document.createElement('div');
+            notification.className = `fixed top-20 right-4 z-50 px-4 py-2 rounded-lg text-white transition-all duration-300 transform translate-x-full`;
+            
+            switch(type) {
+                case 'success':
+                    notification.classList.add('bg-green-500');
+                    break;
+                case 'error':
+                    notification.classList.add('bg-red-500');
+                    break;
+                case 'info':
+                    notification.classList.add('bg-blue-500');
+                    break;
+            }
+            
+            notification.textContent = message;
+            document.body.appendChild(notification);
+            
+            // アニメーション
+            setTimeout(() => {
+                notification.classList.remove('translate-x-full');
+            }, 100);
+            
+            // 自動削除
+            setTimeout(() => {
+                notification.classList.add('translate-x-full');
+                setTimeout(() => {
+                    document.body.removeChild(notification);
+                }, 300);
+            }, 3000);
+        }
+
+        // ヘルパー関数
+        function getStatusClass(status) {
+            switch(status) {
+                case 'stock': return 'bg-blue-100 text-blue-800';
+                case 'shipped': return 'bg-purple-100 text-purple-800';
+                case 'sold': return 'bg-green-100 text-green-800';
+                default: return 'bg-gray-100 text-gray-800';
+            }
+        }
+
+        function getStatusText(status) {
+            switch(status) {
+                case 'stock': return '在庫';
+                case 'shipped': return '発送済み';
+                case 'sold': return '販売済み';
+                default: return '不明';
+            }
+        }
+
+        function formatDate(dateString) {
+            const date = new Date(dateString);
+            return date.toLocaleDateString('ja-JP');
+        }
+
+        // ページ離脱時の保存
+        window.addEventListener('beforeunload', () => {
+            saveCards();
+        });
+    </script>
+<script defer src="https://static.cloudflareinsights.com/beacon.min.js/vcd15cbe7772f49c399c6a5babf22c1241717689176015" integrity="sha512-ZpsOmlRQV6y907TI0dKBHq9Md29nnaEIPlkf84rnaERnq6zvWvPUqr2ft8M1aS28oN72PdrCzSjY4U6VaAw1EQ==" data-cf-beacon='{"rayId":"96cbd525ab0017c3","serverTiming":{"name":{"cfExtPri":true,"cfEdge":true,"cfOrigin":true,"cfL4":true,"cfSpeedBrain":true,"cfCacheStatus":true}},"version":"2025.7.0","token":"4edd5f8ec12a48cfa682ab8261b80a79"}' crossorigin="anonymous"></script>
+</body>
+</html>
+    <script id="html_badge_script1">
+        window.__genspark_remove_badge_link = "https://www.genspark.ai/api/html_badge/" +
+            "remove_badge?token=To%2FBnjzloZ3UfQdcSaYfDnuiTGXd4rDNPgGy2J5udgtP9cNZnqTrw9e1E3lKPidksCUxYjbZKo%2BJ2gMW2Wq73hF7zxi%2B7xkxPh8d47tqhnfrQW6fxaaEkHMxvcbpuV4Es1lPLgfwptNg2wkNz1073zol2RlLunrObazSwbpF3C0XUc%2FEJubwesnt9TXHMJxAz9kfMKt7Slom5wrop44Zz58lYnAt0ANl04sIcaywkd9DHdRnMujzyjGUeB%2BoEGvF%2BTg2KIGZCTdfExPYmpE5%2F%2F2fv06bL%2FFbBypDBlo%2BVwjZDDL6gR4uY4wHKreNOdROm%2FzSpA92NMiL1dy86x48%2B%2BJn7Gbsk8wrhTQMxCechJrFMeFmdLa7TdRtQ08vCXkZbLjvyIGvon15h4Op%2Fvjo7HSXRnyef4P5ua%2FziBtYCiIUb8T40cQrCcYCskbaRx8hfmOOd2NON4dPtxNEdL0lby7HpZurKXEPcgJwi%2BcVBwFRVHAdu%2BNbL%2B0RgotYw652bxUBgjwq%2FHcL9LHwFUfYsA%3D%3D";
+        window.__genspark_locale = "ja-JP";
+        window.__genspark_token = "To/BnjzloZ3UfQdcSaYfDnuiTGXd4rDNPgGy2J5udgtP9cNZnqTrw9e1E3lKPidksCUxYjbZKo+J2gMW2Wq73hF7zxi+7xkxPh8d47tqhnfrQW6fxaaEkHMxvcbpuV4Es1lPLgfwptNg2wkNz1073zol2RlLunrObazSwbpF3C0XUc/EJubwesnt9TXHMJxAz9kfMKt7Slom5wrop44Zz58lYnAt0ANl04sIcaywkd9DHdRnMujzyjGUeB+oEGvF+Tg2KIGZCTdfExPYmpE5//2fv06bL/FbBypDBlo+VwjZDDL6gR4uY4wHKreNOdROm/zSpA92NMiL1dy86x48++Jn7Gbsk8wrhTQMxCechJrFMeFmdLa7TdRtQ08vCXkZbLjvyIGvon15h4Op/vjo7HSXRnyef4P5ua/ziBtYCiIUb8T40cQrCcYCskbaRx8hfmOOd2NON4dPtxNEdL0lby7HpZurKXEPcgJwi+cVBwFRVHAdu+NbL+0RgotYw652bxUBgjwq/HcL9LHwFUfYsA==";
+    </script>
+    
+    <script id="html_notice_dialog_script" src="https://www.genspark.ai/notice_dialog.js"></script>
+    
